@@ -1,0 +1,1 @@
+# to install: cd pycacheism && pip install .
