@@ -132,46 +132,31 @@ class SIM:
         
         # if l1 missed, l2 missed, and didnt miss, then this was idle instruction
         if (not l1_hit and not l2_hit and not missed):
-            time_passed = 0.5  #nsec
+            time_passed = 0.5  # nsec
                     
         elif (l1_hit):
             # if l1 hit
-            # l1 access time, 
-            time_passed = L1_ACCESS_TIME
-            # l1 access energy
-            energy_consumed = L1_READ_WRITE_POWER * time_passed
-            # l2 idle energy
-            energy_consumed += L2_IDLE_POWER * time_passed
-            # dram idle energy
-            energy_consumed += DRAM_IDLE_POWER * time_passed
+            time_passed = L1_ACCESS_TIME # l1 access time
+            energy_consumed = L1_READ_WRITE_POWER * time_passed # l1 access energy
+            energy_consumed += L2_IDLE_POWER * time_passed # l2 idle energy
+            energy_consumed += DRAM_IDLE_POWER * time_passed # dram idle energy
             
         elif (l2_hit):
             # if l2 hit
-            # l2 access time
-            time_passed = L2_ACCESS_TIME
-            # l2 access energy 
-            energy_consumed = L2_READ_WRITE_POWER * time_passed
-            # l2 transfer energy
-            energy_consumed += L2_TRANSFER_ENERGY
-            # l1 idle
-            energy_consumed += L1_IDLE_POWER * time_passed
-            # dram idle energy
-            energy_consumed += DRAM_IDLE_POWER * time_passed
+            time_passed = L2_ACCESS_TIME # l2 access time
+            energy_consumed = L2_READ_WRITE_POWER * time_passed # l2 access energy 
+            energy_consumed += L2_TRANSFER_ENERGY # l2 transfer energy
+            energy_consumed += L1_IDLE_POWER * time_passed # l1 idle
+            energy_consumed += DRAM_IDLE_POWER * time_passed # dram idle energy
         
         else:
             # both miss
-            # dram access time
-            time_passed = DRAM_ACCESS_TIME
-            # dram access energy
-            energy_consumed = DRAM_READ_WRITE_POWER * time_passed
-            # dram transfer energy
-            energy_consumed += DRAM_TRANSFER_ENERGY
-            # l2 transfer energy
-            energy_consumed += L2_TRANSFER_ENERGY
-            # l2 idle energy
-            energy_consumed += L2_IDLE_POWER * time_passed
-            # l1 idle energy
-            energy_consumed += L1_IDLE_POWER * time_passed
+            time_passed = DRAM_ACCESS_TIME # dram access time
+            energy_consumed = DRAM_READ_WRITE_POWER * time_passed # dram access energy
+            energy_consumed += DRAM_TRANSFER_ENERGY # dram transfer energy
+            energy_consumed += L2_TRANSFER_ENERGY # l2 transfer energy
+            energy_consumed += L2_IDLE_POWER * time_passed # l2 idle energy
+            energy_consumed += L1_IDLE_POWER * time_passed # l1 idle energy
                 
         self.time += time_passed
         self.total_energy_cost += energy_consumed
