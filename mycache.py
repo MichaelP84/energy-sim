@@ -68,9 +68,14 @@ class Cache:
                 array[i][j] = Line()
         
         self.data = array
+        self.next_cache = None
+        
         self.hits = 0
         self.misses = 0
-        self.next_cache = None
+        self.energy_consumption = 0
+    
+    def get_energy_consumption(self):
+        return self.energy_consumption
     
     def set_next_cache(self, next_cache):
         self.next_cache = next_cache
@@ -120,8 +125,18 @@ class Cache:
 class DRAM:
     def __init__(self, size):
         self.size = size
+        self.hits = 0
+        self.misses = 0
+        self.energy_consumption = 0
+        
+    def get_stats(self):
+        return self.hits, self.misses
+    
+    def get_energy_consumption(self):
+        return self.energy_consumption
 
     def access(self, address, op):
+        self.hits += 1
         return True
 
     
@@ -160,12 +175,10 @@ class SIM:
     def __init__(self):
         self.total_energy_cost = 0 # pico joules
         self.time = 0 # p sec
+        self.total_accesses = 0
+        self.total_access_time = 0
         
-        self.l1_hits = 0
-        self.l2_hits = 0
-        self.misses = 0
-        
-        self.prev_stats = None
+        self.prev_stats = {"instr_l1_hits": 0, "instr_l1_misses": 0, "data_l1_hits": 0, "data_l1_misses": 0, "l2_hits": 0, "l2_misses": 0, "mem_hits": 0}
         
         # capacity, line_size, assoc
         self.instr_l1 = Cache(L1_CACHE_SIZE, CACHE_LINE_SIZE, L1_ASSOC) # 32 KB
@@ -179,40 +192,42 @@ class SIM:
         
         # self.cs = CacheSimulator(self.instr_l1, self.mem)
 
-    def load(self, addr):
-        self.cs.load(addr)  # Loads one byte from address 2342, should be a miss in all cache-levels
-
-    def store(self, addr, length):
-        self.cs.store(addr, length)  
-
+    def get_avg_access_time(self):
+        return self.total_access_time / self.total_accesses
+    
     def update_stats(self):
-        stats = self.cs.print_stats()
         l1_hit = False
         l2_hit = False
         missed = False
         
-        for level in stats:
-            if (level['name'] == "L1"):
-                if level['HIT_count'] > self.l1_hits:
-                    l1_hit = True
-                    self.l1_hits = level['HIT_count']
-            elif (level['name'] == "L2"):
-                if level['HIT_count'] > self.l2_hits:
-                    l2_hit = True
-                    self.l2_hits = level['HIT_count']
+        instr_l1_hits, instr_l1_misses = self.instr_l1.get_stats()
+        data_l1_hits, data_l1_misses = self.data_l1.get_stats()
+        l2_hits, l2_misses = self.l2.get_stats()
+        memory_hits, _ = self.mem.get_stats()
         
-        if (not l1_hit and not l2_hit):
-            self.misses += 1
-            missed = True
+        l1_hit = instr_l1_hits > self.prev_stats["instr_l1_hits"] or data_l1_hits > self.prev_stats["data_l1_hits"]
+        l2_hit = l2_hits > self.prev_stats["l2_hits"]
+        missed = memory_hits > self.prev_stats["mem_hits"]
+        
+        # update prev stats
+        self.prev_stats["instr_l1_hits"] = instr_l1_hits
+        self.prev_stats["instr_l1_misses"] = instr_l1_misses
+        self.prev_stats["data_l1_hits"] = data_l1_hits
+        self.prev_stats["data_l1_misses"] = data_l1_misses
+        self.prev_stats["l2_hits"] = l2_hits
+        self.prev_stats["l2_misses"] = l2_misses
+        self.prev_stats["mem_hits"] = memory_hits
         
         return l1_hit, l2_hit, missed
     
     def show_sim_data(self):
-        print(f"Total Energy Cost: {self.total_energy_cost} pico joules")
+        print(f"Total Accesses: {self.total_accesses}")
         print(f"Total Time: {self.time} pico seconds")
-        print(f"L1 Hits: {self.l1_hits}")
-        print(f"L2 Hits: {self.l2_hits}")
-        print(f"Misses: {self.misses}")
+        print(f"Average Access Time: {self.get_avg_access_time()} pico seconds")
+        print(f"Total Energy Cost: {self.total_energy_cost} pico joules")
+        print(f"L1 Hits: {self.prev_stats['instr_l1_hits'] + self.prev_stats['data_l1_hits']}")  # sum of instr and data l1 hits
+        print(f"L2 Hits: {self.prev_stats['l2_hits']}")
+        print(f"Misses: {self.prev_stats['mem_hits']}")
         
         
     def idle(self):
@@ -248,6 +263,9 @@ class SIM:
         # if l1 missed, l2 missed, and didnt miss, then this was idle instruction
         if (not l1_hit and not l2_hit and not missed):
             time_passed = 0.5  # nsec
+            energy_consumed = L1_IDLE_POWER * time_passed # l1 idle energy
+            energy_consumed += L2_IDLE_POWER * time_passed # l2 idle energy
+            energy_consumed += DRAM_IDLE_POWER * time_passed # dram idle energy
                     
         elif (l1_hit):
             # if l1 hit
@@ -272,7 +290,8 @@ class SIM:
             energy_consumed += L2_TRANSFER_ENERGY # l2 transfer energy
             energy_consumed += L2_IDLE_POWER * time_passed # l2 idle energy
             energy_consumed += L1_IDLE_POWER * time_passed # l1 idle energy
-                
+
+        self.total_accesses += 1
         self.time += time_passed
         self.total_energy_cost += energy_consumed
         
@@ -280,7 +299,33 @@ class SIM:
         
 
 def main():
-    pass
+    simulator = SIM()
+    file_path = "Traces/Spec_Benchmark/008.espresso.din"
+    parsed_data = parse_trace_file(file_path)
+    
+    for op, address, value in parsed_data:
+        # print(f"OP: {op}, Address: {address}, Value: {value}")
+        if (op == 0):
+            # Memory read
+            simulator.load(address)
+        elif (op == 1):
+            # Memory write
+            simulator.store(address, value)
+        elif (op == 2):
+            # Instruction fetch
+            simulator.load(address)
+        elif (op == 3):
+            # Ignore
+            simulator.idle()
+        elif (op == 4):
+            # Flush Cache
+            simulator.flush_cache()
+            
+        simulator.step()
+
+        # break
+    
+    simulator.show_sim_data()
 
 if __name__ == "__main__":
     main()
