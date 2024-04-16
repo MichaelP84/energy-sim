@@ -32,22 +32,30 @@ class Line:
         self.tag = 0
         self.data = 0
         self.valid = False
+        self.dirty = False
 
     def put(self, tag, data):
         self.tag = tag
         self.data = data
         self.valid = True
+        self.dirty = False
+
     
     def remove(self):
         self.tag = 0
         self.data = 0
         self.valid = False
+        self.dirty = False
+
 
     def __eq__(self, tag: int) -> bool:
         return self.tag == tag
 
     def isValid(self):
         return self.valid
+    
+    def isDirty(self):
+        return self.dirty
     
     
 # Cache simulation
@@ -114,6 +122,10 @@ class Cache:
         # Cache miss
         self.misses += 1
         victim_way_index = random.randint(0, self.assoc - 1) if (empty_line == -1) else empty_line  # Random replacement policy
+        if (self.data[set_index][victim_way_index].isDirty()):
+            # have to calculate time and energy for writing back to main memory
+            pass
+        
         self.data[set_index][victim_way_index].remove()
         
         self.next_cache.access(address, op) # assume we can get from next memory layer (l2, main memory)
@@ -248,6 +260,25 @@ class SIM:
         for i in range(self.l2.num_sets):
             for j in range(self.l2.assoc):
                 self.l2.data[i][j].remove()
+    
+    def execute(self, address, op, value):
+        if (op == 0):
+            # Memory read
+            self.data_l1.access(address)
+        elif (op == 1):
+            # Memory write
+            self.data_l1.access(address)
+        elif (op == 2):
+            # Instruction fetch
+            self.instr_l1.access(address)
+        elif (op == 3):
+            # Ignore
+            self.idle()
+        elif (op == 4):
+            # Flush Cache
+            self.flush_cache()
+            
+        pass
                 
     def step(self):
         # for each action, check current state with previous stats to see what happened
@@ -305,22 +336,7 @@ def main():
     
     for op, address, value in parsed_data:
         # print(f"OP: {op}, Address: {address}, Value: {value}")
-        if (op == 0):
-            # Memory read
-            simulator.load(address)
-        elif (op == 1):
-            # Memory write
-            simulator.store(address, value)
-        elif (op == 2):
-            # Instruction fetch
-            simulator.load(address)
-        elif (op == 3):
-            # Ignore
-            simulator.idle()
-        elif (op == 4):
-            # Flush Cache
-            simulator.flush_cache()
-            
+        simulator.execute(address, op, value)
         simulator.step()
 
         # break
