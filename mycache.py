@@ -139,20 +139,61 @@ class Cache:
         set_index = (address >> self.n_s_bits) & ((1 << self.n_s_bits) - 1)
         tag = address >> (int(log2(self.line_size)) + int(log2(self.num_sets)))
         
+        # Check for hit
+        empty_line = -1
         for way in range(self.assoc):
             line = self.data[set_index][way]
             if (not line.isValid()):
+                empty_line = way
                 continue
             
             if (line == tag):
-                self.data[set_index][way].remove()
-                return
+                # the data exists in this cache, overwrite it
+                
+                if (line.isDirty()):
+                    # if this line is dirty have to write it back to DRAM
+                    self.evicitions += 1
+                    self.next_cache.evict(address) # goes to DRAM, doesnt actually do anything
+                    
+                # remove old line
+                line.remove()
+                
+                # put in new line
+                self.data[set_index][way].valid = True
+                self.data[set_index][way].tag = tag
+                self.data[set_index][way].data = "data"
+                self.data[set_index][way].dirty = True # this is still dirty data
+                
+                return True
+        
+        victim_way_index = random.randint(0, self.assoc - 1) if (empty_line == -1) else empty_line  # Random replacement policy
+
+        if (self.data[set_index][victim_way_index].isDirty()):
+            # have to calculate time and energy for writing back to main memory
+            # have to evict this line if it exists in the next cache
+            self.evicitions += 1
+            self.next_cache.evict(address)
+            
+            # remove old line
+            line.remove()
+                
+            # put in new line
+            self.data[set_index][way].valid = True
+            self.data[set_index][way].put(tag, "data") # put data in cache
+            self.data[set_index][way].dirty = True # this is still dirty data
+            
+        else:
+            # write dirty line to empty line
+            self.data[set_index][victim_way_index].put(tag, "data") # put data in cache
+            self.data[set_index][victim_way_index].dirty = True # this is still dirty data
+            
+        
+        return False
 
     def access(self, address, op): # -> hit, evicted line
         # other_set_index = (address >> self.n_s_bits) % self.num_sets
         set_index = (address >> self.n_s_bits) & ((1 << self.n_s_bits) - 1)
         tag = address >> (int(log2(self.line_size)) + int(log2(self.num_sets)))
-        evicted_line = False
         
         # print(hex(address), " set_index:", set_index)
 
@@ -169,7 +210,7 @@ class Cache:
                     # writing, update dirty bit
                     line.dirty = True
                 self.hits += 1
-                return True, evicted_line
+                return True
             
 
         # Cache miss
@@ -178,17 +219,20 @@ class Cache:
         if (self.data[set_index][victim_way_index].isDirty()):
             # have to calculate time and energy for writing back to main memory
             # have to evict this line if it exists in the next cache
-            evicted_line = True
             self.evicitions += 1
             self.next_cache.evict(address)
+            
+            
+        # if evicting from l1, write to l2
+        # if evicting from l2, write to dram
         
         self.data[set_index][victim_way_index].remove()
         
-        hit, ev = self.next_cache.access(address, op) # assume we can get from next memory layer (l2, main memory)
+        hit = self.next_cache.access(address, op) # assume we can get from next memory layer (l2, main memory)
         # we wont have to write evictions that happens l2
         self.data[set_index][victim_way_index].put(tag, "data") # put data in cache
         
-        return False, evicted_line
+        return False
 
 # DRAM simulation
 class DRAM:
@@ -216,6 +260,10 @@ class DRAM:
     
     def touch(self):
         self.energy_consumption += self.read_write_power * self.access_time
+    
+    def evict(self, address):
+        # dont really have to do anything
+        pass
 
     
 # Memory subsystem parameters
@@ -255,7 +303,7 @@ class SIM:
         self.total_accesses = 0
         # self.total_access_time = 0
         
-        self.prev_stats = {"instr_l1_hits": 0, "instr_l1_misses": 0, "data_l1_hits": 0, "data_l1_misses": 0, "l2_hits": 0, "l2_misses": 0, "mem_hits": 0, "evictions": 0}
+        self.prev_stats = {"instr_l1_hits": 0, "instr_l1_misses": 0, "data_l1_hits": 0, "data_l1_misses": 0, "l2_hits": 0, "l2_misses": 0, "mem_hits": 0, "l1_evictions": 0, "l2_evictions": 0}
         
         # capacity, line_size, assoc
         self.instr_l1 = Cache(L1_CACHE_SIZE, CACHE_LINE_SIZE, L1_ASSOC, L1_ACCESS_TIME, L1_IDLE_POWER, L1_READ_WRITE_POWER, L2_TRANSFER_ENERGY) # 32 KB
@@ -281,14 +329,14 @@ class SIM:
         instr_l1_hits, instr_l1_misses, instr_l1_evictions = self.instr_l1.get_stats()
         data_l1_hits, data_l1_misses, data_l1_evictions = self.data_l1.get_stats()
 
-        l2_hits, l2_misses, _ = self.l2.get_stats()
-        # print("l2 misses:", l2_misses, "l2 hits:", l2_hits)
+        l2_hits, l2_misses, l2_evictions = self.l2.get_stats()
         memory_hits, _, _ = self.dram.get_stats()
         
         l1_hit = instr_l1_hits > self.prev_stats["instr_l1_hits"] or data_l1_hits > self.prev_stats["data_l1_hits"]
         l2_hit = l2_hits > self.prev_stats["l2_hits"]
         missed = memory_hits > self.prev_stats["mem_hits"]
-        evicted = instr_l1_evictions + data_l1_evictions > self.prev_stats["evictions"]
+        l1_evicted = instr_l1_evictions + data_l1_evictions > self.prev_stats["l1_evictions"]
+        l2_evicted = l2_evictions > self.prev_stats["l2_evictions"]
         
         # update prev stats
         self.prev_stats["instr_l1_hits"] = instr_l1_hits
@@ -298,11 +346,12 @@ class SIM:
         self.prev_stats["l2_hits"] = l2_hits
         self.prev_stats["l2_misses"] = l2_misses
         self.prev_stats["mem_hits"] = memory_hits
-        self.prev_stats["evictions"] = instr_l1_evictions + data_l1_evictions
+        self.prev_stats["l1_evictions"] = instr_l1_evictions + data_l1_evictions
+        self.prev_stats["l2_evictions"] = l2_evictions
         
         assert(l2_misses == memory_hits)
         
-        return l1_hit, l2_hit, missed, evicted
+        return l1_hit, l2_hit, missed, l1_evicted, l2_evicted
     
     def show_sim_data(self):
         data_l1_energy = self.data_l1.get_total_energy_consumption()
@@ -325,7 +374,9 @@ class SIM:
         print(f"L2 Hits: {self.prev_stats['l2_hits']}")
         print(f"Cache Misses: {self.prev_stats['mem_hits']}")
         
-        print(f"Evictions: {self.prev_stats['evictions']}")
+        # print(f"Evictions: {self.prev_stats['evictions']}")
+        print(f"L1 Evictions: {self.prev_stats['l1_evictions']}")
+        print(f"L2 Evictions: {self.prev_stats['l2_evictions']}")
         
         
     def idle(self):
@@ -366,10 +417,105 @@ class SIM:
             self.flush_cache()
             
         pass
+    
+    # ED: "copy of data DRAM -> L2 and L2 -> L1 on misses do not take extra time or extra active energy for the writes - this is included in penalty energy."
+    
+    def step_other(self, op):
+                # for each action, check current state with previous stats to see what happened
+        l1_hit, l2_hit, missed, l1_evicted, l2_evicted = self.update_stats()
+        
+        time_passed = 0
+        
+        assert(not (l1_hit and l2_hit))
+        assert(not (l1_hit and missed))
+        assert(not (l2_hit and missed))
+        
+        # Ignore instruction (idle)
+        if (op == 3):
+            time_passed = 0.5  # nsec
+            # energy_consumed = L1_IDLE_POWER * time_passed # l1 idle energy
+            # energy_consumed += L2_IDLE_POWER * time_passed # l2 idle energy
+            # energy_consumed += DRAM_IDLE_POWER * time_passed # dram idle energy
+
+        
+        l1_active = self.data_l1
+        l1_passive = self.instr_l1
+        if (op == 2): # instruction fetch
+            l1_active = self.instr_l1
+            l1_passive = self.data_l1
+                
+        elif (l1_hit):
+            time_passed = L1_ACCESS_TIME
+            
+            # check l1
+            l1_active.touch()
+            l1_passive.idle(L1_ACCESS_TIME)
+            self.l2.idle(L1_ACCESS_TIME)
+            self.dram.idle(L1_ACCESS_TIME)
+            
+        elif (l2_hit):
+            time_passed = L1_ACCESS_TIME + L2_ACCESS_TIME 
+            
+            # check l2
+            self.l2.touch()
+            l1_active.idle(L2_ACCESS_TIME)
+            l1_passive.idle(L2_ACCESS_TIME)
+            self.dram.idle(L2_ACCESS_TIME)
+            
+            # transfer to L1
+            l1_active.transfer()
+            
+            # now actually read or write L1
+            l1_active.touch()
+            l1_passive.idle(L1_ACCESS_TIME)
+            self.l2.idle(L1_ACCESS_TIME)
+            self.dram.idle(L1_ACCESS_TIME)
+
+        else:
+            # miss to l1 and l2
+            time_passed = L1_ACCESS_TIME + DRAM_ACCESS_TIME
+            
+            # read from main memory (50 nsec)
+            self.dram.touch()
+            l1_active.idle(DRAM_ACCESS_TIME)
+            l1_passive.idle(DRAM_ACCESS_TIME)
+            self.l2.idle(DRAM_ACCESS_TIME)
+            
+            # transfer to L2
+            self.l2.transfer()
+            # transfer to L1
+            l1_active.transfer()
+                        
+            # now actually read or write L1
+            l1_active.touch()
+            l1_passive.idle(L1_ACCESS_TIME)
+            self.l2.idle(L1_ACCESS_TIME)
+            self.dram.idle(L1_ACCESS_TIME)
+            
+        if (l1_evicted):
+            time_passed += L2_ACCESS_TIME
+            self.l2.touch() # clear l2 entry
+
+            self.dram.idle(L2_ACCESS_TIME) # write to dram
+            l1_active.idle(L2_ACCESS_TIME)
+            l1_passive.idle(L2_ACCESS_TIME)
+            
+        if (l2_evicted):
+            time_passed += DRAM_ACCESS_TIME
+            self.dram.touch() # write to dram
+
+            self.l2.idle(DRAM_ACCESS_TIME) 
+            l1_active.idle(DRAM_ACCESS_TIME)
+            l1_passive.idle(DRAM_ACCESS_TIME)
+
+        self.total_accesses += 1
+        self.time += time_passed
+        
+        pass
                 
     def step(self, op):
         # for each action, check current state with previous stats to see what happened
-        l1_hit, l2_hit, missed, evicted = self.update_stats()
+        l1_hit, l2_hit, missed, l1_evicted, l2_evicted = self.update_stats()
         
         time_passed = 0
         
@@ -430,6 +576,7 @@ class SIM:
             self.dram.idle(L1_ACCESS_TIME)
 
         else:
+            # miss to l1 and l2
             time_passed = L1_ACCESS_TIME + L2_ACCESS_TIME + DRAM_ACCESS_TIME + L2_ACCESS_TIME + L1_ACCESS_TIME
             
             # check l1
@@ -468,20 +615,21 @@ class SIM:
             self.l2.idle(L1_ACCESS_TIME)
             self.dram.idle(L1_ACCESS_TIME)
             
-        if (evicted):
-            time_passed += DRAM_ACCESS_TIME
-            self.dram.touch() # write to dram
-            l1_active.touch() # clear l1 entry
-            self.l2.touch() # clear l2 entry
+        # if (evicted):
+        #     time_passed += DRAM_ACCESS_TIME
+        #     self.dram.touch() # write to dram
+        #     l1_active.touch() # clear l1 entry
+        #     self.l2.touch() # clear l2 entry
 
-            l1_active.idle(L1_ACCESS_TIME - DRAM_ACCESS_TIME)
-            l1_passive.idle(DRAM_ACCESS_TIME)
-            self.l2.idle(L2_ACCESS_TIME - DRAM_ACCESS_TIME)
+        #     l1_active.idle(L1_ACCESS_TIME - DRAM_ACCESS_TIME)
+        #     l1_passive.idle(DRAM_ACCESS_TIME)
+        #     self.l2.idle(L2_ACCESS_TIME - DRAM_ACCESS_TIME)
 
         self.total_accesses += 1
         self.time += time_passed
         
         pass
+    
     
     
 def run_all_traces():
@@ -501,7 +649,7 @@ def run_trace(trace):
         # print(f"OP: {op}, Address: {address}, Value: {value}")
         assert(op != 4)
         simulator.execute(address, op, value)
-        simulator.step(op)
+        simulator.step_other(op)
 
         # break
         
