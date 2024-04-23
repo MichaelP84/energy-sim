@@ -499,17 +499,17 @@ class SIM:
             time_passed += L2_ACCESS_TIME
             self.l2.touch() # clear l2 entry
 
-            self.dram.idle(L2_ACCESS_TIME) # write to dram
+            self.dram.idle(L2_ACCESS_TIME)
             l1_active.idle(L2_ACCESS_TIME)
             l1_passive.idle(L2_ACCESS_TIME)
             
         if (l2_evicted):
-            time_passed += DRAM_ACCESS_TIME
+            # time_passed += DRAM_ACCESS_TIME
             self.dram.touch() # write to dram
 
-            self.l2.idle(DRAM_ACCESS_TIME) 
-            l1_active.idle(DRAM_ACCESS_TIME)
-            l1_passive.idle(DRAM_ACCESS_TIME)
+            # self.l2.idle(DRAM_ACCESS_TIME) 
+            # l1_active.idle(DRAM_ACCESS_TIME)
+            # l1_passive.idle(DRAM_ACCESS_TIME)
 
         self.total_accesses += 1
         self.time += time_passed
