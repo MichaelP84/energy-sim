@@ -19,10 +19,10 @@ Total Memory Access Time: 101370500.0 pico seconds
 Average Access Time: 101.37029725940548 pico seconds
 
 Total Energy Cost: 317062395.0 pico joules
-> Instruction L1 Energy: 50685250.0 pico joules
-> Data L1 Energy: 100743265.0 pico joules
-> L2 Energy: 81017480.0 pico joules
-> DRAM Energy: 84616400.0 pico joules
+Instruction L1 Energy: 50685250.0 pico joules
+Data L1 Energy: 100743265.0 pico joules
+L2 Energy: 81017480.0 pico joules
+DRAM Energy: 84616400.0 pico joules
 
 L1 Hits: 999885                                          (combined data and instruction l1 hits)
 L2 Hits: 72
