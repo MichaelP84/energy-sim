@@ -1,7 +1,7 @@
 # How to Run Code
 
-## to run our simulator run the run.sh file, make sure its permissions are set to executable (chmod u+x run.sh)
-## our simulator will run the 15 traces 3 times, once for each L2 Associativity (2, 4, 8)
+### To run our simulator run the run.sh file, make sure its permissions are set to executable (chmod u+x run.sh) and sun ./run.sh
+### Our simulator will run the 15 traces 3 times, once for each L2 Associativity (2, 4, 8)
 
 # Output format of our simulator
 
