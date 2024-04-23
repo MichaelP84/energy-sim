@@ -278,7 +278,7 @@ CACHE_LINE_SIZE = 64  # 64 bytes
 
 L1_ASSOC = 1
 L1_SETS = L1_CACHE_SIZE // (CACHE_LINE_SIZE * L1_ASSOC) # S = C / (A * B)
-L2_ASSOC = 4
+L2_ASSOC = 8
 L2_SETS = L2_CACHE_SIZE // (CACHE_LINE_SIZE * L2_ASSOC)
 
 L1_ACCESS_TIME = 0.5 * 1000   # 0.5 ns or 500 ps
@@ -298,7 +298,10 @@ DRAM_TRANSFER_ENERGY = 640  # 640 pJ
 CPU_CLOCK_SPEED = 2  # 2 GHz
 
 class SIM:
-    def __init__(self):
+    def __init__(self, l2_assoc):
+        L2_ASSOC = l2_assoc
+        L2_SETS = L2_CACHE_SIZE // (CACHE_LINE_SIZE * L2_ASSOC)
+        print("\n\n**** L2 ASSOC: ", L2_ASSOC)
         self.time = 0 # p sec
         self.total_accesses = 0
         # self.total_access_time = 0
@@ -632,15 +635,15 @@ class SIM:
     
     
     
-def run_all_traces():
+def run_all_traces(L2_ASSOC):
     for trace in os.listdir("Traces/Spec_Benchmark"):
-        run_trace(trace)
+        run_trace(trace, L2_ASSOC)
         
-def run_trace(trace):
+def run_trace(trace, L2_ASSOC):
     if (not trace.endswith(".din")):
         return
         
-    simulator = SIM()
+    simulator = SIM(L2_ASSOC)
     file_path = os.path.join("Traces/Spec_Benchmark", trace)
     parsed_data = parse_trace_file(file_path)
 
@@ -657,8 +660,12 @@ def run_trace(trace):
     
 
 def main():
-    # run_trace("custom.din")
-    run_all_traces()
+    assoc_values = [2, 4, 8]
+    for assoc in assoc_values:
+        # print(f"\n\nRunning simulation with {assoc} associativity")
+        L2_ASSOC = assoc
+        # run_trace("custom.din", L2_ASSOC)
+        run_all_traces(L2_ASSOC)
     
    
 
